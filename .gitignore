@@ -1,0 +1,32 @@
+# 忽略所有目录下的 .env（绝对生效）
+.env
+**/.env
+backend/.env
+
+# 不忽略 .env.example
+
+# 你要忽略的备份和文档
+backend_backup_20260427_212001
+backend/API_DOCUMENTATION.md
+
+# Python 缓存
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# 虚拟环境
+venv
+.venv
+env
+
+# 前端
+node_modules
+dist
+
+# 编辑器 / 系统
+.vscode
+.idea
+.DS_Store
+Thumbs.db
