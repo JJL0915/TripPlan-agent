@@ -1,6 +1,6 @@
-# TripAgent 智能旅行助手
+# TripPlanAgent 智能旅行助手
 
-TripAgent 是一个智能旅游 Agent 项目。前端使用 Vue 3 + TypeScript + Vite，后端使用 FastAPI，并基于 **LangChain + LangGraph** 实现智能行程规划。
+TripPlanAgent 是一个智能旅游 Agent 项目。前端使用 Vue 3 + TypeScript + Vite，后端使用 FastAPI，并基于 **LangChain + LangGraph** 实现智能行程规划。
 
 当前后端采用 **工具先查 + 子 Agent 总结 + Planner 整合** 的架构：
 
