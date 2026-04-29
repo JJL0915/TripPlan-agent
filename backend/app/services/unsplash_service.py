@@ -59,7 +59,7 @@ class UnsplashService:
             return photos
 
         except Exception as e:
-            print(f"❌ Unsplash搜索失败: {str(e)}")
+            print(f"[ERROR] Unsplash搜索失败: {str(e)}")
             return []
 
     def get_photo_url(self, query: str) -> Optional[str]:

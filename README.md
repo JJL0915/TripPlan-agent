@@ -1,212 +1,262 @@
-# HelloAgents智能旅行助手 🌍✈️
+# TripAgent 智能旅行助手
 
-基于HelloAgents框架构建的智能旅行规划助手,集成高德地图MCP服务,提供个性化的旅行计划生成。
+TripAgent 是一个智能旅游 Agent 项目。前端使用 Vue 3 + TypeScript + Vite，后端使用 FastAPI，并基于 **LangChain + LangGraph** 实现智能行程规划。
 
-## ✨ 功能特点
+当前后端采用 **工具先查 + 子 Agent 总结 + Planner 整合** 的架构：
 
-- 🤖 **AI驱动的旅行规划**: 基于HelloAgents框架的SimpleAgent,智能生成详细的多日旅程
-- 🗺️ **高德地图集成**: 通过MCP协议接入高德地图服务,支持景点搜索、路线规划、天气查询
-- 🧠 **智能工具调用**: Agent自动调用高德地图MCP工具,获取实时POI、路线和天气信息
-- 🎨 **现代化前端**: Vue3 + TypeScript + Vite,响应式设计,流畅的用户体验
-- 📱 **完整功能**: 包含住宿、交通、餐饮和景点游览时间推荐
+1. 代码先稳定调用高德 MCP 工具，获取真实景点、天气、酒店数据。
+2. 三个子 Agent 分别对工具结果做总结：
+   - 景点 Agent：筛选景点并总结推荐理由。
+   - 天气 Agent：分析天气对行程的影响。
+   - 酒店 Agent：筛选酒店并总结推荐理由。
+3. Planner Agent 汇总三个子 Agent 的分析结果，生成最终结构化旅行计划。
 
-## 🏗️ 技术栈
+## 技术栈
 
-### 后端
-- **框架**: HelloAgents (基于SimpleAgent)
-- **API**: FastAPI
-- **MCP工具**: amap-mcp-server (高德地图)
-- **LLM**: 支持多种LLM提供商(OpenAI, DeepSeek等)
+后端：
 
-### 前端
-- **框架**: Vue 3 + TypeScript
-- **构建工具**: Vite
-- **UI组件库**: Ant Design Vue
-- **地图服务**: 高德地图 JavaScript API
-- **HTTP客户端**: Axios
+- FastAPI
+- LangChain
+- LangGraph
+- langchain-mcp-adapters
+- 高德地图 MCP：`amap-mcp-server`
+- Unsplash API
+- Pydantic
 
-## 📁 项目结构
+前端：
 
+- Vue 3
+- TypeScript
+- Vite
+- Ant Design Vue
+- Axios
+- 高德地图 JS API
+
+## 核心流程
+
+```text
+用户提交旅行需求
+  -> POST /api/trip/plan
+  -> LangGraph 并行执行三个工具查询节点
+      -> 景点工具节点：maps_text_search
+      -> 天气工具节点：maps_weather
+      -> 酒店工具节点：maps_text_search
+  -> LangGraph 并行执行三个子 Agent 总结节点
+      -> 景点 Agent 总结
+      -> 天气 Agent 总结
+      -> 酒店 Agent 总结
+  -> Planner Agent 整合生成 TripPlan JSON
+  -> FastAPI 返回结果
+  -> 前端展示行程、预算、地图、天气、图片
 ```
-helloagents-trip-planner/
-├── backend/                    # 后端服务
+
+## 项目结构
+
+```text
+TripAgent/
+├── backend/
 │   ├── app/
-│   │   ├── agents/            # Agent实现
+│   │   ├── agents/
+│   │   │   ├── prompts.py
 │   │   │   └── trip_planner_agent.py
-│   │   ├── api/               # FastAPI路由
+│   │   ├── api/
 │   │   │   ├── main.py
 │   │   │   └── routes/
 │   │   │       ├── trip.py
-│   │   │       └── map.py
-│   │   ├── services/          # 服务层
-│   │   │   ├── amap_service.py
-│   │   │   └── llm_service.py
-│   │   ├── models/            # 数据模型
+│   │   │       ├── map.py
+│   │   │       └── poi.py
+│   │   ├── models/
 │   │   │   └── schemas.py
-│   │   └── config.py          # 配置管理
+│   │   ├── services/
+│   │   │   ├── amap_service.py
+│   │   │   ├── llm_service.py
+│   │   │   └── unsplash_service.py
+│   │   └── config.py
 │   ├── requirements.txt
-│   ├── .env.example
-│   └── .gitignore
-├── frontend/                   # 前端应用
+│   └── .env.example
+├── frontend/
 │   ├── src/
-│   │   ├── components/        # Vue组件
-│   │   ├── services/          # API服务
-│   │   ├── types/             # TypeScript类型
-│   │   └── views/             # 页面视图
 │   ├── package.json
-│   └── vite.config.ts
+│   └── .env.example
 └── README.md
 ```
 
-## 🚀 快速开始
-
-### 前提条件
+## 环境要求
 
 - Python 3.10+
 - Node.js 16+
-- 高德地图API密钥 (Web服务API和Web端(JS API))
-- LLM API密钥 (OpenAI/DeepSeek等)
+- 高德地图 API Key
+- LLM API Key
+- 可选：Unsplash Access Key
 
-### 后端安装
+## 后端配置
 
-1. 进入后端目录
+首次运行前，请先进入项目文件，复制示例配置：
+
+```powershell
+Copy-Item backend\.env.example backend\.env
+```
+
+如果是 macOS / Linux：
+
 ```bash
+cp backend/.env.example backend/.env
+```
+
+然后编辑：
+
+```text
+backend/.env
+```
+
+按需填写：
+
+```env
+AMAP_API_KEY=your_amap_api_key
+
+LLM_API_KEY=your_llm_api_key
+LLM_BASE_URL=your_llm_api_base_url
+LLM_MODEL_ID=your_llm_model_name
+
+UNSPLASH_ACCESS_KEY=your_unsplash_access_key
+UNSPLASH_SECRET_KEY=your_unsplash_secret_key
+```
+
+说明：
+
+- `AMAP_API_KEY` 必填。
+- LLM 配置兼容 `LLM_API_KEY` / `OPENAI_API_KEY`、`LLM_BASE_URL` / `OPENAI_BASE_URL`、`LLM_MODEL_ID` / `OPENAI_MODEL`。
+- 后端会显式读取 `backend/.env`。
+
+## 前端配置
+
+首次运行前，请复制示例配置：
+
+```powershell
+Copy-Item frontend\.env.example frontend\.env
+```
+
+如果是 macOS / Linux：
+
+```bash
+cp frontend/.env.example frontend/.env
+```
+
+然后编辑：
+
+```text
+frontend/.env
+```
+
+示例：
+
+```env
+VITE_API_BASE_URL=http://localhost:8000
+VITE_AMAP_WEB_KEY=your_amap_web_key
+VITE_AMAP_WEB_JS_KEY=your_amap_js_api_key
+```
+
+## 启动后端
+
+### 1. 创建 Python 虚拟环境
+
+如果项目环境还没搭建，可以使用 Python 自带的 `venv` 创建，进入项目文件：
+```powershell
+python -m venv .venv
+```
+
+激活虚拟环境：
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+
+也可以使用 Conda、uv、Poetry 等环境管理工具。只要安装依赖的 Python 环境与启动后端时使用的 Python 环境一致即可。
+
+### 2. 安装后端依赖
+
+进入环境后,在项目根目录执行：
+
+```powershell
+pip install -r backend\requirements.txt
+```
+
+如果没有激活虚拟环境，也可以直接指定项目 `.venv` 里的 Python：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+```
+
+### 3. 启动后端
+
+```powershell
 cd backend
-```
-
-2. 创建虚拟环境
-```bash
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-```
-
-3. 安装依赖
-```bash
-pip install -r requirements.txt
-```
-
-4. 配置环境变量
-```bash
-cp .env.example .env
-# 编辑.env文件,填入你的API密钥
-```
-
-5. 启动后端服务
-```bash
 uvicorn app.api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 前端安装
+启动后访问：
 
-1. 进入前端目录
-```bash
+- Swagger：http://localhost:8000/docs
+- ReDoc：http://localhost:8000/redoc
+- 健康检查：http://localhost:8000/health
+
+## 启动前端
+
+```powershell
 cd frontend
-```
-
-2. 安装依赖
-```bash
 npm install
-```
-
-3. 配置环境变量
-```bash
-# 创建.env文件, 填入高德地图Web API Key 和 Web端JS API Key
-cp .env.example .env
-```
-
-4. 启动开发服务器
-```bash
 npm run dev
 ```
 
-5. 打开浏览器访问 `http://localhost:5173`
+默认访问：
 
-## 📝 使用指南
-
-1. 在首页填写旅行信息:
-   - 目的地城市
-   - 旅行日期和天数
-   - 交通方式偏好
-   - 住宿偏好
-   - 旅行风格标签
-
-2. 点击"生成旅行计划"按钮
-
-3. 系统将:
-   - 调用HelloAgents Agent生成初步计划
-   - Agent自动调用高德地图MCP工具搜索景点
-   - Agent获取天气信息和路线规划
-   - 整合所有信息生成完整行程
-
-4. 查看结果:
-   - 每日详细行程
-   - 景点信息与地图标记
-   - 交通路线规划
-   - 天气预报
-   - 餐饮推荐
-
-## 🔧 核心实现
-
-### HelloAgents Agent集成
-
-```python
-from hello_agents import SimpleAgent, HelloAgentsLLM
-from hello_agents.tools import MCPTool
-
-# 创建高德地图MCP工具
-amap_tool = MCPTool(
-    name="amap",
-    server_command=["uvx", "amap-mcp-server"],
-    env={"AMAP_MAPS_API_KEY": "your_api_key"},
-    auto_expand=True
-)
-
-# 创建旅行规划Agent
-agent = SimpleAgent(
-    name="旅行规划助手",
-    llm=HelloAgentsLLM(),
-    system_prompt="你是一个专业的旅行规划助手..."
-)
-
-# 添加工具
-agent.add_tool(amap_tool)
+```text
+http://localhost:5173
 ```
 
-### MCP工具调用
+## 主要接口
 
-Agent可以自动调用以下高德地图MCP工具:
-- `maps_text_search`: 搜索景点POI
-- `maps_weather`: 查询天气
-- `maps_direction_walking_by_address`: 步行路线规划
-- `maps_direction_driving_by_address`: 驾车路线规划
-- `maps_direction_transit_integrated_by_address`: 公共交通路线规划
+生成旅行计划：
 
-## 📄 API文档
+```http
+POST /api/trip/plan
+```
 
-启动后端服务后,访问 `http://localhost:8000/docs` 查看完整的API文档。
+请求示例：
 
-主要端点:
-- `POST /api/trip/plan` - 生成旅行计划
-- `GET /api/map/poi` - 搜索POI
-- `GET /api/map/weather` - 查询天气
-- `POST /api/map/route` - 规划路线
+```json
+{
+  "city": "厦门",
+  "start_date": "2026-05-01",
+  "end_date": "2026-05-03",
+  "travel_days": 3,
+  "transportation": "公共交通",
+  "accommodation": "经济型酒店",
+  "preferences": ["历史文化", "美食"],
+  "free_text_input": "节奏轻松，少走路"
+}
+```
 
-## 🤝 贡献指南
+获取景点图片：
 
-欢迎提交Pull Request或Issue!
+```http
+GET /api/poi/photo?name=鼓浪屿
+```
 
-## 📜 开源协议
+地图服务健康检查：
 
-CC BY-NC-SA 4.0
+```http
+GET /api/map/health
+```
 
-## 🙏 致谢
 
-- [HelloAgents](https://github.com/datawhalechina/Hello-Agents) - 智能体教程
-- [HelloAgents框架](https://github.com/jjyaoao/HelloAgents) - 智能体框架
-- [高德地图开放平台](https://lbs.amap.com/) - 地图服务
-- [amap-mcp-server](https://github.com/sugarforever/amap-mcp-server) - 高德地图MCP服务器
 
----
+## 当前实现说明
 
-**HelloAgents智能旅行助手** - 让旅行计划变得简单而智能 🌈
-
+- 高德 MCP 通过 `langchain-mcp-adapters` 接入。
+- MCP 启动时优先使用项目 `.venv` 下的 `uvx.exe`。
+- `/api/trip/plan` 包含 3 个 MCP 工具查询节点、3 个子 Agent 总结节点和 1 个 Planner Agent。
+- 工具查询节点并行执行，子 Agent 总结节点也并行执行。
+- Planner 输出 JSON 后会经过类型归一化和 Pydantic 校验。
+- 如果 LLM 输出不可解析，会返回兜底行程，避免前端空白。

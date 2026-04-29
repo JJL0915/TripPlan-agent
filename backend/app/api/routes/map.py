@@ -9,7 +9,7 @@ from ...models.schemas import (
     RouteResponse,
     WeatherResponse,
 )
-from ...services.amap_service import get_amap_service
+from ...services.amap_service import get_amap_mcp_tools, get_amap_service
 
 router = APIRouter(prefix="/map", tags=["地图服务"])
 
@@ -41,12 +41,12 @@ async def search_poi(
         service = get_amap_service()
 
         # 搜索POI
-        pois = service.search_poi(keywords, city, citylimit)
+        pois = await service.search_poi(keywords, city, citylimit)
 
         return POISearchResponse(success=True, message="POI搜索成功", data=pois)
 
     except Exception as e:
-        print(f"❌ POI搜索失败: {str(e)}")
+        print(f"[ERROR] POI搜索失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"POI搜索失败: {str(e)}")
 
 
@@ -71,12 +71,12 @@ async def get_weather(city: str = Query(..., description="城市名称", example
         service = get_amap_service()
 
         # 查询天气
-        weather_info = service.get_weather(city)
+        weather_info = await service.get_weather(city)
 
         return WeatherResponse(success=True, message="天气查询成功", data=weather_info)
 
     except Exception as e:
-        print(f"❌ 天气查询失败: {str(e)}")
+        print(f"[ERROR] 天气查询失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"天气查询失败: {str(e)}")
 
 
@@ -101,7 +101,7 @@ async def plan_route(request: RouteRequest):
         service = get_amap_service()
 
         # 规划路线
-        route_info = service.plan_route(
+        route_info = await service.plan_route(
             origin_address=request.origin_address,
             destination_address=request.destination_address,
             origin_city=request.origin_city,
@@ -112,7 +112,7 @@ async def plan_route(request: RouteRequest):
         return RouteResponse(success=True, message="路线规划成功", data=route_info)
 
     except Exception as e:
-        print(f"❌ 路线规划失败: {str(e)}")
+        print(f"[ERROR] 路线规划失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"路线规划失败: {str(e)}")
 
 
@@ -122,11 +122,12 @@ async def health_check():
     try:
         # 检查服务是否可用
         service = get_amap_service()
+        tools = await get_amap_mcp_tools()
 
         return {
             "status": "healthy",
             "service": "map-service",
-            "mcp_tools_count": len(service.mcp_tool._available_tools),
+            "mcp_tools_count": len(tools),
         }
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"服务不可用: {str(e)}")

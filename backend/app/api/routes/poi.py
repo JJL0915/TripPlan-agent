@@ -37,12 +37,12 @@ async def get_poi_detail(poi_id: str):
         amap_service = get_amap_service()
 
         # 调用高德地图POI详情API
-        result = amap_service.get_poi_detail(poi_id)
+        result = await amap_service.get_poi_detail(poi_id)
 
         return POIDetailResponse(success=True, message="获取POI详情成功", data=result)
 
     except Exception as e:
-        print(f"❌ 获取POI详情失败: {str(e)}")
+        print(f"[ERROR] 获取POI详情失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取POI详情失败: {str(e)}")
 
 
@@ -60,12 +60,12 @@ async def search_poi(keywords: str, city: str = "北京"):
     """
     try:
         amap_service = get_amap_service()
-        result = amap_service.search_poi(keywords, city)
+        result = await amap_service.search_poi(keywords, city)
 
         return {"success": True, "message": "搜索成功", "data": result}
 
     except Exception as e:
-        print(f"❌ 搜索POI失败: {str(e)}")
+        print(f"[ERROR] 搜索POI失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"搜索POI失败: {str(e)}")
 
 
@@ -99,5 +99,5 @@ async def get_attraction_photo(name: str):
         }
 
     except Exception as e:
-        print(f"❌ 获取景点图片失败: {str(e)}")
+        print(f"[ERROR] 获取景点图片失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取景点图片失败: {str(e)}")

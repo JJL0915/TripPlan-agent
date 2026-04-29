@@ -14,29 +14,29 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     # ===== 启动阶段 =====
     print("\n" + "=" * 60)
-    print(f"🚀 {settings.app_name} v{settings.app_version}")
+    print(f"[START] {settings.app_name} v{settings.app_version}")
     print("=" * 60)
 
     print_config()
 
     try:
         validate_config()
-        print("\n✅ 配置验证通过")
+        print("\n[OK] 配置验证通过")
     except ValueError as e:
-        print(f"\n❌ 配置验证失败:\n{e}")
+        print(f"\n[ERROR] 配置验证失败:\n{e}")
         print("\n请检查.env文件并确保所有必要的配置项都已设置")
         raise
 
     print("\n" + "=" * 60)
-    print("📚 API文档: http://localhost:8000/docs")
-    print("📖 ReDoc文档: http://localhost:8000/redoc")
+    print("[DOCS] API文档: http://localhost:8000/docs")
+    print("[DOCS] ReDoc文档: http://localhost:8000/redoc")
     print("=" * 60 + "\n")
 
     yield  # 👉 这里是“分界线”：上面是startup，下面是shutdown
 
     # ===== 关闭阶段 =====
     print("\n" + "=" * 60)
-    print("👋 应用正在关闭...")
+    print("[STOP] 应用正在关闭...")
     print("=" * 60 + "\n")
 
 
@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="基于HelloAgents框架的智能旅行规划助手API",
+    description="基于LangChain + LangGraph的智能旅行规划助手API",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
@@ -54,7 +54,6 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.get_cors_origins_list(),
-    # allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

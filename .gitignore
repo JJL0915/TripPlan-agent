@@ -6,9 +6,8 @@ backend/.env
 # 不忽略 .env.example
 
 # 你要忽略的备份和文档
-backend_backup_20260427_212001
-backend/API_DOCUMENTATION.md
-backend\API_DOCUMENTATION_CN.md
+backend_backup_*
+backend/API_DOCUMENTATION*
 # Python 缓存
 __pycache__
 *.pyc
