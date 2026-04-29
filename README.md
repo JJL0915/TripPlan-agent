@@ -54,27 +54,27 @@ TripPlanAgent 是一个智能旅游 Agent 项目。前端使用 Vue 3 + TypeScri
 
 ```text
 TripAgent/
-├── backend/
+├── backend/                                     #后端服务
 │   ├── app/
 │   │   ├── agents/
-│   │   │   ├── prompts.py
-│   │   │   └── trip_planner_agent.py
-│   │   ├── api/
+│   │   │   ├── prompts.py                       #提示词
+│   │   │   └── trip_planner_agent.py            #Agent实现
+│   │   ├── api/                                 #FastAPI路由
 │   │   │   ├── main.py
 │   │   │   └── routes/
 │   │   │       ├── trip.py
 │   │   │       ├── map.py
 │   │   │       └── poi.py
-│   │   ├── models/
+│   │   ├── models/                              #数据模型
 │   │   │   └── schemas.py
-│   │   ├── services/
+│   │   ├── services/                            #服务层
 │   │   │   ├── amap_service.py
 │   │   │   ├── llm_service.py
 │   │   │   └── unsplash_service.py
-│   │   └── config.py
+│   │   └── config.py                            #配置管理
 │   ├── requirements.txt
 │   └── .env.example
-├── frontend/
+├── frontend/                                    #前端应用
 │   ├── src/
 │   ├── package.json
 │   └── .env.example
