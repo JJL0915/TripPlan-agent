@@ -1,5 +1,7 @@
 """地图服务API路由"""
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 from ...models.schemas import (
@@ -11,6 +13,8 @@ from ...models.schemas import (
 )
 from ...services.amap_service import get_amap_mcp_tools, get_amap_service
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/map", tags=["地图服务"])
 
 
@@ -21,8 +25,8 @@ router = APIRouter(prefix="/map", tags=["地图服务"])
     description="根据关键词搜索POI(兴趣点)",
 )
 async def search_poi(
-    keywords: str = Query(..., description="搜索关键词", example="故宫"),
-    city: str = Query(..., description="城市", example="北京"),
+    keywords: str = Query(..., description="搜索关键词", examples=["故宫"]),
+    city: str = Query(..., description="城市", examples=["北京"]),
     citylimit: bool = Query(True, description="是否限制在城市范围内"),
 ):
     """
@@ -46,7 +50,7 @@ async def search_poi(
         return POISearchResponse(success=True, message="POI搜索成功", data=pois)
 
     except Exception as e:
-        print(f"[ERROR] POI搜索失败: {str(e)}")
+        logger.exception("POI 搜索失败", extra={"keywords": keywords, "city": city, "error": str(e)})
         raise HTTPException(status_code=500, detail=f"POI搜索失败: {str(e)}")
 
 
@@ -56,7 +60,7 @@ async def search_poi(
     summary="查询天气",
     description="查询指定城市的天气信息",
 )
-async def get_weather(city: str = Query(..., description="城市名称", example="北京")):
+async def get_weather(city: str = Query(..., description="城市名称", examples=["北京"])):
     """
     查询天气
 
@@ -76,7 +80,7 @@ async def get_weather(city: str = Query(..., description="城市名称", example
         return WeatherResponse(success=True, message="天气查询成功", data=weather_info)
 
     except Exception as e:
-        print(f"[ERROR] 天气查询失败: {str(e)}")
+        logger.exception("天气查询失败", extra={"city": city, "error": str(e)})
         raise HTTPException(status_code=500, detail=f"天气查询失败: {str(e)}")
 
 
@@ -112,7 +116,7 @@ async def plan_route(request: RouteRequest):
         return RouteResponse(success=True, message="路线规划成功", data=route_info)
 
     except Exception as e:
-        print(f"[ERROR] 路线规划失败: {str(e)}")
+        logger.exception("路线规划失败", extra={"route_type": request.route_type, "error": str(e)})
         raise HTTPException(status_code=500, detail=f"路线规划失败: {str(e)}")
 
 

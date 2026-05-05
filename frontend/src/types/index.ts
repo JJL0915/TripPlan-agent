@@ -93,3 +93,28 @@ export interface TripPlanResponse {
   data?: TripPlan
 }
 
+export interface AssistantMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface AssistantChatRequest {
+  message: string
+  page: string
+  history: AssistantMessage[]
+  draft_trip_request?: Partial<TripFormData>
+  current_trip_plan?: TripPlan | null
+}
+
+export interface AssistantChatResponse {
+  success: boolean
+  message: string
+  reply: string
+  intent: string
+  draft_trip_request?: Partial<TripFormData>
+  missing_fields: string[]
+  should_generate_plan: boolean
+  should_modify_plan: boolean
+  trip_plan?: TripPlan
+}
+

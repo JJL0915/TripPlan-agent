@@ -204,7 +204,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
+import { onMounted, onUnmounted, ref, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { generateTripPlan } from '@/services/api'
@@ -226,6 +226,28 @@ const formData = reactive<Omit<TripFormData, 'start_date' | 'end_date'> & { star
   accommodation: '经济型酒店',
   preferences: [],
   free_text_input: ''
+})
+
+const applyAssistantDraft = (event: Event) => {
+  const draft = (event as CustomEvent<Partial<TripFormData>>).detail
+  if (!draft) return
+
+  if (draft.city) formData.city = draft.city
+  if (draft.start_date) formData.start_date = dayjs(draft.start_date)
+  if (draft.end_date) formData.end_date = dayjs(draft.end_date)
+  if (draft.travel_days) formData.travel_days = draft.travel_days
+  if (draft.transportation) formData.transportation = draft.transportation
+  if (draft.accommodation) formData.accommodation = draft.accommodation
+  if (Array.isArray(draft.preferences)) formData.preferences = draft.preferences
+  if (typeof draft.free_text_input === 'string') formData.free_text_input = draft.free_text_input
+}
+
+onMounted(() => {
+  window.addEventListener('assistant:draft-updated', applyAssistantDraft)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('assistant:draft-updated', applyAssistantDraft)
 })
 
 // 监听日期变化,自动计算旅行天数

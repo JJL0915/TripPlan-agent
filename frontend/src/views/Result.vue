@@ -308,7 +308,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { DownOutlined } from '@ant-design/icons-vue'
@@ -327,6 +327,7 @@ const activeDays = ref<number[]>([0]) // 默认展开第一天
 let map: any = null
 
 onMounted(async () => {
+  window.addEventListener('assistant:trip-updated', applyAssistantTripUpdate)
   console.log('[Debug] Result.vue mounted')
   const data = sessionStorage.getItem('tripPlan')
   console.log('[Debug] sessionStorage data:', data ? `存在 (${(data.length / 1024).toFixed(1)}KB)` : 'null')
@@ -346,6 +347,27 @@ onMounted(async () => {
     console.log('[Debug] sessionStorage 中没有旅行计划数据')
   }
 })
+
+onUnmounted(() => {
+  window.removeEventListener('assistant:trip-updated', applyAssistantTripUpdate)
+})
+
+const applyAssistantTripUpdate = async (event: Event) => {
+  const updatedPlan = (event as CustomEvent<TripPlan>).detail
+  if (!updatedPlan) return
+
+  tripPlan.value = updatedPlan
+  attractionPhotos.value = {}
+  await loadAttractionPhotos()
+  await nextTick()
+
+  if (map) {
+    map.destroy()
+    map = null
+  }
+  initMap()
+  message.success('行程已根据问答助手更新')
+}
 
 const goBack = () => {
   router.push('/')
@@ -839,6 +861,9 @@ const restoreMap = () => {
 }
 
 // 初始化地图
+void captureMapImage
+void restoreMap
+
 const initMap = async () => {
   try {
     const AMap = await AMapLoader.load({

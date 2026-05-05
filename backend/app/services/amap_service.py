@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sys
 from pathlib import Path
@@ -14,6 +15,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from ..config import get_settings
 from ..models.schemas import Location, POIInfo, RouteInfo, WeatherInfo
 
+logger = logging.getLogger(__name__)
 _amap_mcp_client: MultiServerMCPClient | None = None
 _amap_mcp_tools: list[BaseTool] | None = None
 
@@ -47,12 +49,13 @@ async def get_amap_mcp_tools() -> list[BaseTool]:
 
     if _amap_mcp_tools is None:
         _amap_mcp_tools = await _amap_mcp_client.get_tools()
-        print("[Amap MCP] Tools initialized")
-        print(f"   Tool count: {len(_amap_mcp_tools)}")
-        for tool in _amap_mcp_tools[:5]:
-            print(f"     - {tool.name}")
-        if len(_amap_mcp_tools) > 5:
-            print(f"     ... {len(_amap_mcp_tools) - 5} more tools")
+        logger.info(
+            "高德 MCP 工具初始化完成",
+            extra={
+                "tool_count": len(_amap_mcp_tools),
+                "sample_tools": [tool.name for tool in _amap_mcp_tools[:5]],
+            },
+        )
 
     return _amap_mcp_tools
 
@@ -140,7 +143,10 @@ class AmapService:
                 },
             )
             text = _stringify_result(result)
-            print(f"POI search result: {text[:200]}...")
+            logger.info(
+                "高德 POI 搜索完成",
+                extra={"keywords": keywords, "city": city, "result_preview": text[:200]},
+            )
 
             data = _extract_json_object(text)
             pois = []
@@ -169,14 +175,17 @@ class AmapService:
             return pois
 
         except Exception as e:
-            print(f"[Amap MCP] POI search failed: {str(e)}")
+            logger.exception(
+                "高德 POI 搜索失败",
+                extra={"keywords": keywords, "city": city, "error": str(e)},
+            )
             return []
 
     async def get_weather(self, city: str) -> list[WeatherInfo]:
         try:
             result = await call_amap_tool("maps_weather", {"city": city})
             text = _stringify_result(result)
-            print(f"Weather query result: {text[:200]}...")
+            logger.info("高德天气查询完成", extra={"city": city, "result_preview": text[:200]})
 
             data = _extract_json_object(text)
             forecasts = []
@@ -203,7 +212,7 @@ class AmapService:
             return weather
 
         except Exception as e:
-            print(f"[Amap MCP] Weather query failed: {str(e)}")
+            logger.exception("高德天气查询失败", extra={"city": city, "error": str(e)})
             return []
 
     async def plan_route(
@@ -233,7 +242,10 @@ class AmapService:
 
             result = await call_amap_tool(tool_name, arguments)
             text = _stringify_result(result)
-            print(f"Route planning result: {text[:200]}...")
+            logger.info(
+                "高德路线规划完成",
+                extra={"tool_name": tool_name, "route_type": route_type, "result_preview": text[:200]},
+            )
 
             data = _extract_json_object(text)
             if isinstance(data, dict):
@@ -256,7 +268,10 @@ class AmapService:
             )
 
         except Exception as e:
-            print(f"[Amap MCP] Route planning failed: {str(e)}")
+            logger.exception(
+                "高德路线规划失败",
+                extra={"route_type": route_type, "error": str(e)},
+            )
             return None
 
     async def geocode(self, address: str, city: Optional[str] = None) -> Optional[Location]:
@@ -267,7 +282,7 @@ class AmapService:
 
             result = await call_amap_tool("maps_geo", arguments)
             text = _stringify_result(result)
-            print(f"Geocode result: {text[:200]}...")
+            logger.info("高德地理编码完成", extra={"city": city, "result_preview": text[:200]})
 
             data = _extract_json_object(text)
             if isinstance(data, dict):
@@ -277,14 +292,14 @@ class AmapService:
             return None
 
         except Exception as e:
-            print(f"[Amap MCP] Geocode failed: {str(e)}")
+            logger.exception("高德地理编码失败", extra={"city": city, "error": str(e)})
             return None
 
     async def get_poi_detail(self, poi_id: str) -> dict[str, Any]:
         try:
             result = await call_amap_tool("maps_search_detail", {"id": poi_id})
             text = _stringify_result(result)
-            print(f"POI detail result: {text[:200]}...")
+            logger.info("高德 POI 详情查询完成", extra={"poi_id": poi_id, "result_preview": text[:200]})
 
             data = _extract_json_object(text)
             if isinstance(data, dict):
@@ -292,7 +307,7 @@ class AmapService:
             return {"raw": text}
 
         except Exception as e:
-            print(f"[Amap MCP] Get POI detail failed: {str(e)}")
+            logger.exception("高德 POI 详情查询失败", extra={"poi_id": poi_id, "error": str(e)})
             return {}
 
 

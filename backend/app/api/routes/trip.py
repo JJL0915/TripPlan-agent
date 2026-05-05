@@ -1,10 +1,16 @@
-"""Trip planning API routes."""
+"""旅行规划接口。"""
+
+from __future__ import annotations
+
+import logging
+import time
 
 from fastapi import APIRouter, HTTPException
 
 from ...agents.trip_planner_agent import get_trip_planner_agent
 from ...models.schemas import TripPlanResponse, TripRequest
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/trip", tags=["旅行规划"])
 
 
@@ -15,43 +21,56 @@ router = APIRouter(prefix="/trip", tags=["旅行规划"])
     description="根据用户输入的旅行需求生成详细旅行计划。",
 )
 async def plan_trip(request: TripRequest):
-    """Generate a trip plan."""
+    """生成旅行计划。"""
+    start = time.perf_counter()
+    logger.info(
+        "收到旅行规划请求",
+        extra={
+            "city": request.city,
+            "start_date": request.start_date,
+            "end_date": request.end_date,
+            "travel_days": request.travel_days,
+            "transportation": request.transportation,
+            "accommodation": request.accommodation,
+            "preferences": request.preferences,
+        },
+    )
+
     try:
-        print(f"\n{'=' * 60}")
-        print("收到旅行规划请求:")
-        print(f"   城市: {request.city}")
-        print(f"   日期: {request.start_date} - {request.end_date}")
-        print(f"   天数: {request.travel_days}")
-        print(f"{'=' * 60}\n")
-
-        print("获取多智能体系统实例...")
         agent = get_trip_planner_agent()
-
-        print("开始生成旅行计划...")
         trip_plan = await agent.aplan_trip(request)
-        print("旅行计划生成成功")
-        print(f"   trip_plan type: {type(trip_plan)}")
-        print(f"   city: {trip_plan.city}")
-        print(f"   days: {len(trip_plan.days)}")
 
+        logger.info(
+            "旅行规划请求处理完成",
+            extra={
+                "city": trip_plan.city,
+                "days_count": len(trip_plan.days),
+                "duration_ms": round((time.perf_counter() - start) * 1000, 2),
+            },
+        )
         return TripPlanResponse(success=True, message="旅行计划生成成功", data=trip_plan)
 
-    except Exception as e:
-        print(f"[ERROR] 生成旅行计划失败: {str(e)}")
-        import traceback
-
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"生成旅行计划失败: {str(e)}")
+    except Exception as exc:
+        logger.exception(
+            "旅行规划请求处理失败",
+            extra={
+                "city": request.city,
+                "duration_ms": round((time.perf_counter() - start) * 1000, 2),
+                "error": str(exc),
+            },
+        )
+        raise HTTPException(status_code=500, detail=f"生成旅行计划失败: {exc}") from exc
 
 
 @router.get("/health", summary="健康检查", description="检查旅行规划服务是否正常")
 async def health_check():
-    """Health check for trip planner."""
+    """旅行规划服务健康检查。"""
     try:
         get_trip_planner_agent()
         return {
             "status": "healthy",
             "service": "trip-planner",
         }
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"服务不可用: {str(e)}")
+    except Exception as exc:
+        logger.exception("旅行规划服务健康检查失败", extra={"error": str(exc)})
+        raise HTTPException(status_code=503, detail=f"服务不可用: {exc}") from exc

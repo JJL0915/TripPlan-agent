@@ -10,13 +10,15 @@
         <router-view />
       </a-layout-content>
       <a-layout-footer style="text-align: center">
-        智能旅行助手 ©2026 基于HelloAgents框架
+        智能旅行助手 ©2026 
       </a-layout-footer>
     </a-layout>
+    <FloatingTravelAssistant />
   </div>
 </template>
 
 <script setup lang="ts">
+import FloatingTravelAssistant from '@/components/FloatingTravelAssistant.vue'
 </script>
 
 <style>

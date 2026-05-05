@@ -1,4 +1,4 @@
-from typing import List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field, field_validator
 from datetime import date
 
@@ -178,6 +178,43 @@ class TripPlanResponse(BaseModel):
     success: bool = Field(..., description="是否成功")
     message: str = Field(default="", description="消息")
     data: Optional[TripPlan] = Field(default=None, description="旅行计划数据")
+
+
+class AssistantMessage(BaseModel):
+    """Chat message used by the travel assistant."""
+
+    role: str = Field(..., description="user or assistant")
+    content: str = Field(..., description="Message content")
+
+
+class AssistantChatRequest(BaseModel):
+    """Travel assistant chat request."""
+
+    message: str = Field(..., description="Latest user message")
+    page: str = Field(default="planning", description="Current frontend page")
+    history: List[AssistantMessage] = Field(default_factory=list, description="Recent chat history")
+    draft_trip_request: Optional[Dict[str, Any]] = Field(
+        default=None, description="Partially collected TripRequest fields"
+    )
+    current_trip_plan: Optional[TripPlan] = Field(
+        default=None, description="Current TripPlan on result page"
+    )
+
+
+class AssistantChatResponse(BaseModel):
+    """Travel assistant chat response."""
+
+    success: bool = Field(..., description="Whether the assistant handled the request")
+    message: str = Field(default="", description="Response status message")
+    reply: str = Field(default="", description="Assistant reply shown in chat")
+    intent: str = Field(default="chat", description="Detected user intent")
+    draft_trip_request: Optional[Dict[str, Any]] = Field(
+        default=None, description="Updated draft TripRequest"
+    )
+    missing_fields: List[str] = Field(default_factory=list, description="Missing required fields")
+    should_generate_plan: bool = Field(default=False, description="Whether a plan was generated")
+    should_modify_plan: bool = Field(default=False, description="Whether a plan was modified")
+    trip_plan: Optional[TripPlan] = Field(default=None, description="Generated or modified TripPlan")
 
 
 class POIInfo(BaseModel):

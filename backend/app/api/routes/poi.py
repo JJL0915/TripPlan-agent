@@ -1,11 +1,14 @@
 """POI相关API路由"""
 
+import logging
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from ...services.amap_service import get_amap_service
 from ...services.unsplash_service import get_unsplash_service
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/poi", tags=["POI"])
 
 
@@ -42,7 +45,7 @@ async def get_poi_detail(poi_id: str):
         return POIDetailResponse(success=True, message="获取POI详情成功", data=result)
 
     except Exception as e:
-        print(f"[ERROR] 获取POI详情失败: {str(e)}")
+        logger.exception("获取 POI 详情失败", extra={"poi_id": poi_id, "error": str(e)})
         raise HTTPException(status_code=500, detail=f"获取POI详情失败: {str(e)}")
 
 
@@ -65,7 +68,7 @@ async def search_poi(keywords: str, city: str = "北京"):
         return {"success": True, "message": "搜索成功", "data": result}
 
     except Exception as e:
-        print(f"[ERROR] 搜索POI失败: {str(e)}")
+        logger.exception("搜索 POI 失败", extra={"keywords": keywords, "city": city, "error": str(e)})
         raise HTTPException(status_code=500, detail=f"搜索POI失败: {str(e)}")
 
 
@@ -99,5 +102,5 @@ async def get_attraction_photo(name: str):
         }
 
     except Exception as e:
-        print(f"[ERROR] 获取景点图片失败: {str(e)}")
+        logger.exception("获取景点图片失败", extra={"name": name, "error": str(e)})
         raise HTTPException(status_code=500, detail=f"获取景点图片失败: {str(e)}")

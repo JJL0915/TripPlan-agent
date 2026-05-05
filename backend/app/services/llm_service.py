@@ -1,11 +1,13 @@
 """LLM service built on LangChain."""
 
+import logging
 import os
 
 from langchain_openai import ChatOpenAI
 
 from ..config import get_settings
 
+logger = logging.getLogger(__name__)
 _llm_instance: ChatOpenAI | None = None
 
 
@@ -45,9 +47,16 @@ def get_llm() -> ChatOpenAI:
 
         _llm_instance = ChatOpenAI(**kwargs)
 
-        print("[LangChain] LLM service initialized")
-        print(f"   Base URL: {base_url}")
-        print(f"   Model: {model}")
+        logger.info(
+            "LLM 服务初始化完成",
+            extra={
+                "base_url": base_url,
+                "model": model,
+                "api_key_configured": bool(api_key),
+                "timeout": kwargs["timeout"],
+                "max_retries": kwargs["max_retries"],
+            },
+        )
 
     return _llm_instance
 

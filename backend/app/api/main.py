@@ -1,56 +1,58 @@
-"""FastAPI主应用"""
+"""FastAPI 应用入口。"""
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from ..config import get_settings, validate_config, print_config
-from .routes import trip, poi, map as map_routes
+from __future__ import annotations
+
+import logging
+import time
+import uuid
 from contextlib import asynccontextmanager
 
-# 获取配置
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+
+from ..config import get_settings, print_config, validate_config
+from ..logging_config import setup_logging
+from .routes import assistant, map as map_routes, poi, trip
+
 settings = get_settings()
+setup_logging(settings.log_level)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ===== 启动阶段 =====
-    print("\n" + "=" * 60)
-    print(f"[START] {settings.app_name} v{settings.app_version}")
-    print("=" * 60)
-
+    logger.info(
+        "应用启动",
+        extra={"app_name": settings.app_name, "app_version": settings.app_version},
+    )
     print_config()
 
     try:
         validate_config()
-        print("\n[OK] 配置验证通过")
-    except ValueError as e:
-        print(f"\n[ERROR] 配置验证失败:\n{e}")
-        print("\n请检查.env文件并确保所有必要的配置项都已设置")
+        logger.info("配置验证通过")
+    except ValueError:
+        logger.exception("配置验证失败")
         raise
 
-    print("\n" + "=" * 60)
-    print("[DOCS] API文档: http://localhost:8000/docs")
-    print("[DOCS] ReDoc文档: http://localhost:8000/redoc")
-    print("=" * 60 + "\n")
+    logger.info(
+        "API 文档地址已就绪",
+        extra={"docs_url": "/docs", "redoc_url": "/redoc"},
+    )
 
-    yield  # 👉 这里是“分界线”：上面是startup，下面是shutdown
+    yield
 
-    # ===== 关闭阶段 =====
-    print("\n" + "=" * 60)
-    print("[STOP] 应用正在关闭...")
-    print("=" * 60 + "\n")
+    logger.info("应用关闭")
 
 
-# 创建FastAPI应用
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="基于LangChain + LangGraph的智能旅行规划助手API",
+    description="基于 LangChain + LangGraph 的智能旅行规划 API",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
 )
 
-# 配置CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.get_cors_origins_list(),
@@ -59,15 +61,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 注册路由
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    start = time.perf_counter()
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception(
+            "HTTP 请求处理失败",
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "duration_ms": round((time.perf_counter() - start) * 1000, 2),
+            },
+        )
+        raise
+
+    response.headers["X-Request-ID"] = request_id
+    logger.info(
+        "HTTP 请求处理完成",
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration_ms": round((time.perf_counter() - start) * 1000, 2),
+        },
+    )
+    return response
+
+
 app.include_router(trip.router, prefix="/api")
 app.include_router(poi.router, prefix="/api")
 app.include_router(map_routes.router, prefix="/api")
+app.include_router(assistant.router, prefix="/api")
 
 
 @app.get("/")
 async def root():
-    """根路径"""
     return {
         "name": settings.app_name,
         "version": settings.app_version,
@@ -79,7 +114,6 @@ async def root():
 
 @app.get("/health")
 async def health():
-    """健康检查"""
     return {
         "status": "healthy",
         "service": settings.app_name,

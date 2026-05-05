@@ -1,89 +1,81 @@
-"""Unsplash图片服务"""
+"""Unsplash 图片服务。"""
+
+from __future__ import annotations
+
+import logging
+from typing import List, Optional
 
 import requests
-from typing import List, Optional
+
 from ..config import get_settings
-import logging
 
 logger = logging.getLogger(__name__)
 
 
 class UnsplashService:
-    """Unsplash图片服务类"""
+    """Unsplash 图片服务。"""
 
     def __init__(self):
-        """初始化服务"""
         settings = get_settings()
         self.access_key = settings.unsplash_access_key
         self.base_url = "https://api.unsplash.com"
 
     def search_photos(self, query: str, per_page: int = 5) -> List[dict]:
-        """
-        搜索图片
-
-        Args:
-            query: 搜索关键词
-            per_page: 每页数量
-
-        Returns:
-            图片列表
-        """
+        """搜索图片。外部图片服务失败时返回空列表，让业务继续降级运行。"""
         try:
-            url = f"{self.base_url}/search/photos"
-            params = {
-                "query": query,
-                "per_page": per_page,
-                "client_id": self.access_key,
-            }
-
-            response = requests.get(url, params=params, timeout=10)
+            response = requests.get(
+                f"{self.base_url}/search/photos",
+                params={
+                    "query": query,
+                    "per_page": per_page,
+                },
+                headers={"Authorization": f"Client-ID {self.access_key}"},
+                timeout=10,
+            )
             response.raise_for_status()
 
-            data = response.json()
-            results = data.get("results", [])
+            results = response.json().get("results", [])
+            return [
+                {
+                    "id": photo.get("id"),
+                    "url": photo.get("urls", {}).get("regular"),
+                    "thumb": photo.get("urls", {}).get("thumb"),
+                    "description": photo.get("description") or photo.get("alt_description"),
+                    "photographer": photo.get("user", {}).get("name"),
+                }
+                for photo in results
+            ]
 
-            # 提取图片URL
-            photos = []
-            for photo in results:
-                photos.append(
-                    {
-                        "id": photo.get("id"),
-                        "url": photo.get("urls", {}).get("regular"),
-                        "thumb": photo.get("urls", {}).get("thumb"),
-                        "description": photo.get("description")
-                        or photo.get("alt_description"),
-                        "photographer": photo.get("user", {}).get("name"),
-                    }
-                )
-
-            return photos
-
-        except Exception as e:
-            print(f"[ERROR] Unsplash搜索失败: {str(e)}")
+        except requests.RequestException as exc:
+            logger.warning(
+                "Unsplash 图片搜索失败，已降级为空图片",
+                extra={
+                    "query": query,
+                    "error_type": type(exc).__name__,
+                    "status_code": getattr(getattr(exc, "response", None), "status_code", None),
+                },
+            )
+            return []
+        except Exception as exc:
+            logger.exception(
+                "Unsplash 图片搜索出现非预期异常，已降级为空图片",
+                extra={"query": query, "error_type": type(exc).__name__},
+            )
             return []
 
     def get_photo_url(self, query: str) -> Optional[str]:
-        """
-        获取单张图片URL
-
-        Args:
-            query: 搜索关键词
-
-        Returns:
-            图片URL
-        """
+        """获取单张图片 URL。"""
         photos = self.search_photos(query, per_page=1)
         if photos:
             return photos[0].get("url")
         return None
 
 
-# 全局服务实例
 _unsplash_service = None
 
 
 def get_unsplash_service() -> UnsplashService:
-    """获取Unsplash服务实例(单例模式)"""
+    """获取 Unsplash 服务单例。"""
     global _unsplash_service
 
     if _unsplash_service is None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import time
 from datetime import datetime, timedelta
@@ -29,6 +30,8 @@ from .prompts import (
     WEATHER_AGENT_PROMPT,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class TripPlannerState(TypedDict, total=False):
     request: TripRequest
@@ -47,7 +50,7 @@ class MultiAgentTripPlanner:
     """LangGraph multi-agent trip planning system."""
 
     def __init__(self):
-        print("[LangGraph] Initializing multi-agent trip planner...")
+        logger.info("旅行规划图初始化开始", extra={"component": "langgraph"})
         self.llm = get_llm()
         self.graph = None
 
@@ -55,7 +58,7 @@ class MultiAgentTripPlanner:
         if self.graph is not None:
             return
 
-        print("  - Loading Amap MCP tools for LangGraph nodes...")
+        logger.info("加载高德 MCP 工具", extra={"component": "langgraph"})
         await get_amap_mcp_tools()
 
         builder = StateGraph(TripPlannerState)
@@ -79,7 +82,7 @@ class MultiAgentTripPlanner:
         builder.add_edge("planner", END)
 
         self.graph = builder.compile()
-        print("[LangGraph] Trip planner initialized")
+        logger.info("旅行规划图初始化完成", extra={"component": "langgraph"})
 
     async def aplan_trip(self, request: TripRequest) -> TripPlan:
         """Generate a trip plan asynchronously."""
@@ -90,21 +93,34 @@ class MultiAgentTripPlanner:
             result = await self.graph.ainvoke({"request": request})
             trip_plan = result.get("trip_plan")
             if isinstance(trip_plan, TripPlan):
-                print(
-                    f"[LangGraph] Trip plan generated in {time.time() - total_start:.1f}s"
+                logger.info(
+                    "旅行计划生成完成",
+                    extra={
+                        "component": "langgraph",
+                        "city": request.city,
+                        "travel_days": request.travel_days,
+                        "duration_s": round(time.time() - total_start, 2),
+                    },
                 )
                 return trip_plan
 
-            print("[LangGraph] Graph did not return a TripPlan, using fallback")
+            logger.warning(
+                "规划图未返回 TripPlan，使用兜底计划",
+                extra={"component": "langgraph", "city": request.city},
+            )
             return self._create_fallback_plan(request)
 
         except Exception as e:
-            print(
-                f"[LangGraph] Trip planning failed in {time.time() - total_start:.1f}s: {str(e)}"
+            logger.exception(
+                "旅行规划执行失败，使用兜底计划",
+                extra={
+                    "component": "langgraph",
+                    "city": request.city,
+                    "travel_days": request.travel_days,
+                    "duration_s": round(time.time() - total_start, 2),
+                    "error": str(e),
+                },
             )
-            import traceback
-
-            traceback.print_exc()
             return self._create_fallback_plan(request)
 
     def plan_trip(self, request: TripRequest) -> TripPlan:
@@ -124,7 +140,10 @@ class MultiAgentTripPlanner:
             },
         )
         content = self._stringify_result(result)
-        print(f"  [time] attraction tool: {time.time() - start:.1f}s")
+        logger.info(
+            "LangGraph 节点执行完成",
+            extra={"node": "attraction_tool", "city": request.city, "duration_s": round(time.time() - start, 2)},
+        )
         return {"attraction_raw": content}
 
     async def _weather_tool_node(self, state: TripPlannerState) -> dict[str, str]:
@@ -132,7 +151,10 @@ class MultiAgentTripPlanner:
         start = time.time()
         result = await call_amap_tool("maps_weather", {"city": request.city})
         content = self._stringify_result(result)
-        print(f"  [time] weather tool: {time.time() - start:.1f}s")
+        logger.info(
+            "LangGraph 节点执行完成",
+            extra={"node": "weather_tool", "city": request.city, "duration_s": round(time.time() - start, 2)},
+        )
         return {"weather_raw": content}
 
     async def _hotel_tool_node(self, state: TripPlannerState) -> dict[str, str]:
@@ -147,7 +169,10 @@ class MultiAgentTripPlanner:
             },
         )
         content = self._stringify_result(result)
-        print(f"  [time] hotel tool: {time.time() - start:.1f}s")
+        logger.info(
+            "LangGraph 节点执行完成",
+            extra={"node": "hotel_tool", "city": request.city, "duration_s": round(time.time() - start, 2)},
+        )
         return {"hotel_raw": content}
 
     async def _attraction_agent_node(self, state: TripPlannerState) -> dict[str, str]:
@@ -161,7 +186,10 @@ class MultiAgentTripPlanner:
             ]
         )
         content = getattr(response, "content", str(response))
-        print(f"  [time] attraction summary agent: {time.time() - start:.1f}s")
+        logger.info(
+            "LangGraph 节点执行完成",
+            extra={"node": "attraction_agent", "city": request.city, "duration_s": round(time.time() - start, 2)},
+        )
         return {"attraction_summary": content}
 
     async def _weather_agent_node(self, state: TripPlannerState) -> dict[str, str]:
@@ -175,7 +203,10 @@ class MultiAgentTripPlanner:
             ]
         )
         content = getattr(response, "content", str(response))
-        print(f"  [time] weather summary agent: {time.time() - start:.1f}s")
+        logger.info(
+            "LangGraph 节点执行完成",
+            extra={"node": "weather_agent", "city": request.city, "duration_s": round(time.time() - start, 2)},
+        )
         return {"weather_summary": content}
 
     async def _hotel_agent_node(self, state: TripPlannerState) -> dict[str, str]:
@@ -189,7 +220,10 @@ class MultiAgentTripPlanner:
             ]
         )
         content = getattr(response, "content", str(response))
-        print(f"  [time] hotel summary agent: {time.time() - start:.1f}s")
+        logger.info(
+            "LangGraph 节点执行完成",
+            extra={"node": "hotel_agent", "city": request.city, "duration_s": round(time.time() - start, 2)},
+        )
         return {"hotel_summary": content}
 
     async def _planner_node(self, state: TripPlannerState) -> dict[str, Any]:
@@ -210,7 +244,10 @@ class MultiAgentTripPlanner:
         )
         content = getattr(response, "content", str(response))
         trip_plan = self._parse_response(content, request)
-        print(f"  [time] planner agent: {time.time() - start:.1f}s")
+        logger.info(
+            "LangGraph 节点执行完成",
+            extra={"node": "planner_agent", "city": request.city, "duration_s": round(time.time() - start, 2)},
+        )
         return {"planner_result": content, "trip_plan": trip_plan}
 
     def _build_attraction_keywords(self, request: TripRequest) -> str:
@@ -267,7 +304,10 @@ class MultiAgentTripPlanner:
             data = self._normalize_trip_data(data)
             return TripPlan(**data)
         except Exception as e:
-            print(f"[LangGraph] Failed to parse planner response: {str(e)}")
+            logger.exception(
+                "解析规划 Agent 输出失败，使用兜底计划",
+                extra={"city": request.city, "error": str(e)},
+            )
             return self._create_fallback_plan(request)
 
     @staticmethod

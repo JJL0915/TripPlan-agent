@@ -31,3 +31,10 @@ dist
 Thumbs.db
 
 .claude
+
+
+#测试文件
+logs
+tools
+Optimize.md
+requirements-dev.txt
