@@ -307,3 +307,5 @@ GET /api/poi/photo?name=鼓浪屿
 - Unsplash 图片搜索失败降级。
 
 
+## 后续计划
+- 项目仍在优化中...
