@@ -1,7 +1,16 @@
 import axios from 'axios'
-import type { AssistantChatRequest, AssistantChatResponse, TripFormData, TripPlanResponse } from '@/types'
+import type {
+  AssistantChatRequest,
+  AssistantChatResponse,
+  AssistantSessionResponse,
+  TripFormData,
+  TripPlan,
+  TripPlanResponse,
+  TripPlanUpdateRequest
+} from '@/types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const SESSION_ID_KEY = 'assistantSessionId'
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -45,7 +54,72 @@ export async function generateTripPlan(formData: TripFormData): Promise<TripPlan
     if (error.code === 'ECONNABORTED') {
       throw new Error('请求超时，Agent 生成耗时过长，请稍后重试或简化需求')
     }
-    throw new Error(error.response?.data?.detail || error.message || '生成旅行计划失败')
+    throw new Error(getApiErrorMessage(error, '生成旅行计划失败'))
+  }
+}
+
+export function getAssistantSessionId(): string {
+  return sessionStorage.getItem(SESSION_ID_KEY) || ''
+}
+
+export function saveAssistantSessionId(sessionId?: string | null) {
+  if (!sessionId) return
+  sessionStorage.setItem(SESSION_ID_KEY, sessionId)
+}
+
+export function clearAssistantSessionId() {
+  sessionStorage.removeItem(SESSION_ID_KEY)
+}
+
+function rememberSession(data: { session_id?: string | null }) {
+  saveAssistantSessionId(data.session_id)
+}
+
+function getApiErrorMessage(error: any, fallback: string): string {
+  const detail = error.response?.data?.detail
+  return detail?.message || detail || error.message || fallback
+}
+
+export async function getAssistantSession(sessionId: string): Promise<AssistantSessionResponse> {
+  const response = await apiClient.get<AssistantSessionResponse>(`/api/assistant/session/${sessionId}`)
+  rememberSession(response.data)
+  return response.data
+}
+
+export async function getSessionTripPlan(sessionId: string): Promise<TripPlanResponse> {
+  const response = await apiClient.get<TripPlanResponse>(`/api/assistant/session/${sessionId}/trip-plan`)
+  rememberSession(response.data)
+  return response.data
+}
+
+export async function getAttractionPhoto(name: string): Promise<string | null> {
+  try {
+    const response = await apiClient.get('/api/poi/photo', { params: { name } })
+    return response.data?.data?.photo_url || null
+  } catch (error) {
+    console.error(`获取${name}图片失败:`, error)
+    return null
+  }
+}
+
+export async function saveSessionTripPlan(
+  sessionId: string,
+  tripPlan: TripPlan,
+  basePlanVersion: number
+): Promise<TripPlanResponse> {
+  const payload: TripPlanUpdateRequest = {
+    trip_plan: tripPlan,
+    base_plan_version: basePlanVersion
+  }
+  try {
+    const response = await apiClient.put<TripPlanResponse>(
+      `/api/assistant/session/${sessionId}/trip-plan`,
+      payload
+    )
+    rememberSession(response.data)
+    return response.data
+  } catch (error: any) {
+    throw new Error(getApiErrorMessage(error, '保存行程失败'))
   }
 }
 
@@ -96,13 +170,21 @@ export async function streamTravelAssistant(
     for (const line of lines) {
       const trimmed = line.trim()
       if (!trimmed) continue
-      await onEvent(JSON.parse(trimmed) as AssistantStreamEvent)
+      const event = JSON.parse(trimmed) as AssistantStreamEvent
+      if (event.event === 'final') {
+        rememberSession(event.data)
+      }
+      await onEvent(event)
     }
   }
 
   buffer += decoder.decode()
   if (buffer.trim()) {
-    await onEvent(JSON.parse(buffer.trim()) as AssistantStreamEvent)
+    const event = JSON.parse(buffer.trim()) as AssistantStreamEvent
+    if (event.event === 'final') {
+      rememberSession(event.data)
+    }
+    await onEvent(event)
   }
 }
 

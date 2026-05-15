@@ -10,11 +10,20 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from ..models.schemas import AssistantChatRequest, AssistantChatResponse, TripPlan, TripRequest
+from ..models.schemas import (
+    AssistantChatRequest,
+    AssistantChatResponse,
+    TripPlan,
+    TripRequest,
+)
 from ..services.llm_service import get_llm
+from ..services.session_store import (
+    AssistantSessionState,
+    TripPlanVersionConflict,
+    get_assistant_session_store,
+)
 from .prompts import ASSISTANT_SYSTEM_PROMPT, MODIFY_TRIP_PLAN_PROMPT
 from .trip_planner_agent import get_trip_planner_agent
-
 
 STREAMING_ASSISTANT_PROMPT = """你是智能旅行问答与行程操作助手。请用中文自然回答用户，并且必须遵守下面的输出协议：
 1. 先直接输出给用户看的自然语言回复，这部分会被实时展示给用户。
@@ -64,12 +73,16 @@ class TravelAssistantAgent:
         response = await get_llm().ainvoke(
             [
                 SystemMessage(content=ASSISTANT_SYSTEM_PROMPT),
-                HumanMessage(content=json.dumps(self._build_payload(request), ensure_ascii=False)),
+                HumanMessage(
+                    content=json.dumps(self._build_payload(request), ensure_ascii=False)
+                ),
             ]
         )
         return self._extract_json(response.content)
 
-    async def stream_analysis(self, request: AssistantChatRequest) -> AsyncIterator[dict[str, Any]]:
+    async def stream_analysis(
+        self, request: AssistantChatRequest
+    ) -> AsyncIterator[dict[str, Any]]:
         """流式输出可见回复，并在最后返回解析出的控制元数据。"""
         marker_start = "<assistant_metadata>"
         marker_end = "</assistant_metadata>"
@@ -82,7 +95,9 @@ class TravelAssistantAgent:
         async for chunk in get_llm().astream(
             [
                 SystemMessage(content=STREAMING_ASSISTANT_PROMPT),
-                HumanMessage(content=json.dumps(self._build_payload(request), ensure_ascii=False)),
+                HumanMessage(
+                    content=json.dumps(self._build_payload(request), ensure_ascii=False)
+                ),
             ]
         ):
             text = chunk.content or ""
@@ -121,7 +136,11 @@ class TravelAssistantAgent:
             yield {"event": "delta", "text": pending_text}
 
         metadata_raw = metadata_text.split(marker_end, 1)[0].strip()
-        parsed = self._extract_json(metadata_raw) if metadata_raw else self._default_parsed(request)
+        parsed = (
+            self._extract_json(metadata_raw)
+            if metadata_raw
+            else self._default_parsed(request)
+        )
         yield {
             "event": "analysis_complete",
             "parsed": parsed,
@@ -136,58 +155,66 @@ class TravelAssistantAgent:
         before_action: Optional[BeforeActionCallback] = None,
     ) -> AssistantChatResponse:
         """根据解析结果统一完成生成计划、修改计划或普通问答。"""
-        decision = self._build_decision(request, parsed)
+        store = get_assistant_session_store()
+        state = self._get_session(request)
+        decision = self._build_decision(request, parsed, state)
         reply = reply_override or parsed.get("reply") or "我已经收到你的需求。"
 
-        response = AssistantChatResponse(
-            success=True,
-            message="assistant response",
-            reply=reply,
-            intent=decision["intent"],
-            draft_trip_request=decision["draft"],
-            missing_fields=decision["missing_fields"],
-            should_generate_plan=False,
-            should_modify_plan=False,
-        )
+        response = self._build_response(state, decision, reply)
+        store.update_draft(state.session_id, decision["draft"])
 
-        if decision["should_modify"]:
-            try:
+        action = ""
+        try:
+            if decision["should_modify"]:
+                action = "modify"
                 if before_action:
                     await before_action("我开始修改当前行程，完成后会刷新页面。")
                 modified_plan = await self.modify_plan(
-                    request.current_trip_plan,
+                    decision["current_trip_plan"],
                     parsed.get("modification_request") or request.message,
+                )
+                response.plan_version = store.save_trip_plan(
+                    state.session_id,
+                    modified_plan,
+                    expected_version=decision["plan_version"],
                 )
                 response.should_modify_plan = True
                 response.trip_plan = modified_plan
                 response.message = "行程已修改"
-            except Exception as exc:
-                response.success = False
-                response.message = f"修改行程失败: {exc}"
-                response.reply = "我理解你的修改要求了，但这次没有成功更新行程。你可以把修改目标说得更具体一点。"
-            return response
 
-        if decision["should_generate"] and not decision["missing_fields"]:
-            try:
+            elif decision["should_generate"] and not decision["missing_fields"]:
+                action = "generate"
                 if before_action:
-                    await before_action("我开始生成旅行计划，这一步需要查询景点、天气和酒店数据。")
+                    await before_action(
+                        "我开始生成旅行计划，这一步需要查询景点、天气和酒店数据。"
+                    )
                 trip_request = self.build_trip_request(decision["draft"])
                 trip_plan = await get_trip_planner_agent().aplan_trip(trip_request)
+                response.plan_version = store.save_trip_plan(
+                    state.session_id,
+                    trip_plan,
+                    expected_version=decision["plan_version"],
+                )
                 response.should_generate_plan = True
                 response.trip_plan = trip_plan
                 response.message = "旅行计划生成成功"
-            except Exception as exc:
-                response.success = False
-                response.message = f"生成旅行计划失败: {exc}"
-                response.reply = "信息已经基本齐了，但生成旅行计划时失败了。请稍后再试，或者把需求简化后重新发送。"
-            return response
 
-        if decision["should_generate"] and decision["missing_fields"]:
-            response.reply = reply_override or self.build_missing_reply(decision["missing_fields"])
+            elif decision["should_generate"] and decision["missing_fields"]:
+                response.reply = reply_override or self.build_missing_reply(
+                    decision["missing_fields"]
+                )
 
+        except TripPlanVersionConflict as exc:
+            self._apply_version_conflict(response, exc, action)
+        except Exception as exc:
+            self._apply_action_error(response, exc, action)
+
+        store.append_turn(state.session_id, request.message, response.reply)
         return response
 
-    def get_action_status(self, request: AssistantChatRequest, parsed: Dict[str, Any]) -> Optional[str]:
+    def get_action_status(
+        self, request: AssistantChatRequest, parsed: Dict[str, Any]
+    ) -> Optional[str]:
         """返回即将执行的耗时动作提示，用于流式接口提前告知用户。"""
         decision = self._build_decision(request, parsed)
         if decision["should_modify"]:
@@ -196,7 +223,9 @@ class TravelAssistantAgent:
             return "我开始生成旅行计划，这一步需要查询景点、天气和酒店数据。"
         return None
 
-    async def modify_plan(self, current_plan: Optional[TripPlan], modification_request: str) -> TripPlan:
+    async def modify_plan(
+        self, current_plan: Optional[TripPlan], modification_request: str
+    ) -> TripPlan:
         """按用户要求修改当前行程。"""
         if current_plan is None:
             raise ValueError("当前没有可修改的旅行计划")
@@ -292,23 +321,42 @@ class TravelAssistantAgent:
         }
 
     def _build_payload(self, request: AssistantChatRequest) -> Dict[str, Any]:
+        state = self._get_session(request)
+        history = state.history[-8:] or request.history[-8:]
+        draft = state.draft_trip_request or request.draft_trip_request or {}
+        current_trip_plan = state.current_trip_plan or request.current_trip_plan
+
         return {
             "page": request.page,
             "today": date.today().isoformat(),
             "message": request.message,
-            "history": [m.model_dump() for m in request.history[-8:]],
-            "draft_trip_request": request.draft_trip_request or {},
-            "current_trip_plan_summary": self.summarize_plan(request.current_trip_plan),
+            "history": [m.model_dump() for m in history],
+            "draft_trip_request": draft,
+            "current_trip_plan_summary": self.summarize_plan(current_trip_plan),
         }
 
-    def _build_decision(self, request: AssistantChatRequest, parsed: Dict[str, Any]) -> Dict[str, Any]:
-        draft = self.normalize_draft(parsed.get("draft_trip_request") or request.draft_trip_request or {})
+    def _build_decision(
+        self,
+        request: AssistantChatRequest,
+        parsed: Dict[str, Any],
+        state: Optional[AssistantSessionState] = None,
+    ) -> Dict[str, Any]:
+        state = state or self._get_session(request)
+        draft = self.normalize_draft(
+            parsed.get("draft_trip_request")
+            or state.draft_trip_request
+            or request.draft_trip_request
+            or {}
+        )
+        current_trip_plan = state.current_trip_plan or request.current_trip_plan
         missing_fields = self.missing_required_fields(draft)
         intent = parsed.get("intent") or "chat"
-        should_generate = bool(parsed.get("should_generate_plan")) or intent == "generate_plan"
+        should_generate = (
+            bool(parsed.get("should_generate_plan")) or intent == "generate_plan"
+        )
         should_modify = (
             bool(parsed.get("should_modify_plan")) or intent == "modify_plan"
-        ) and request.current_trip_plan is not None
+        ) and current_trip_plan is not None
 
         return {
             "draft": draft,
@@ -316,17 +364,79 @@ class TravelAssistantAgent:
             "intent": intent,
             "should_generate": should_generate,
             "should_modify": should_modify,
+            "current_trip_plan": current_trip_plan,
+            "plan_version": state.plan_version,
         }
 
     def _default_parsed(self, request: AssistantChatRequest) -> Dict[str, Any]:
+        state = self._get_session(request)
         return {
             "intent": "chat",
-            "draft_trip_request": request.draft_trip_request or {},
+            "draft_trip_request": state.draft_trip_request or request.draft_trip_request or {},
             "missing_fields": [],
             "should_generate_plan": False,
             "should_modify_plan": False,
             "modification_request": "",
         }
+
+    def _get_session(self, request: AssistantChatRequest) -> AssistantSessionState:
+        """获取会话并回填请求上的 session_id。"""
+        state = get_assistant_session_store().get_or_create_session(request.session_id)
+        request.session_id = state.session_id
+        return state
+
+    def _build_response(
+        self,
+        state: AssistantSessionState,
+        decision: Dict[str, Any],
+        reply: str,
+    ) -> AssistantChatResponse:
+        """根据决策结果构造基础响应。"""
+        return AssistantChatResponse(
+            success=True,
+            session_id=state.session_id,
+            message="assistant response",
+            reply=reply,
+            intent=decision["intent"],
+            draft_trip_request=decision["draft"],
+            missing_fields=decision["missing_fields"],
+            should_generate_plan=False,
+            should_modify_plan=False,
+            plan_version=decision["plan_version"],
+        )
+
+    def _apply_version_conflict(
+        self,
+        response: AssistantChatResponse,
+        exc: TripPlanVersionConflict,
+        action: str,
+    ) -> None:
+        """把 TripPlan 乐观锁冲突转换为用户可读响应。"""
+        response.success = False
+        response.plan_version = exc.current_version
+        if action == "modify":
+            response.message = "行程版本已更新，请基于最新行程重新修改"
+            response.reply = "当前行程刚刚被更新过，我没有覆盖最新版本。请刷新后再告诉我需要怎样调整。"
+            return
+
+        response.message = "行程版本已更新，请重新确认后生成"
+        response.reply = "当前行程在生成过程中被更新过，我没有覆盖最新版本。请确认后再重新生成。"
+
+    def _apply_action_error(
+        self,
+        response: AssistantChatResponse,
+        exc: Exception,
+        action: str,
+    ) -> None:
+        """把生成或修改异常转换为稳定响应。"""
+        response.success = False
+        if action == "modify":
+            response.message = f"修改行程失败: {exc}"
+            response.reply = "我理解你的修改要求了，但这次没有成功更新行程。你可以把修改目标说得更具体一点。"
+            return
+
+        response.message = f"生成旅行计划失败: {exc}"
+        response.reply = "信息已经基本齐了，但生成旅行计划时失败了。请稍后再试，或者把需求简化后重新发送。"
 
     def _extract_json(self, text: str) -> Dict[str, Any]:
         content = text.strip()
@@ -340,14 +450,6 @@ class TravelAssistantAgent:
             if match:
                 return json.loads(match.group(0))
             raise
-
-    # 兼容旧代码里的私有方法名，后续可以删除。
-    _normalize_draft = normalize_draft
-    _missing_required_fields = missing_required_fields
-    _build_trip_request = build_trip_request
-    _build_missing_reply = build_missing_reply
-    _summarize_plan = summarize_plan
-    _modify_plan = modify_plan
 
 
 _assistant_agent: TravelAssistantAgent | None = None

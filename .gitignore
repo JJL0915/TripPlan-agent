@@ -7,7 +7,7 @@ backend/.env
 
 # 你要忽略的备份和文档
 backend_backup_*
-backend/API_DOCUMENTATION*
+
 # Python 缓存
 __pycache__
 *.pyc
@@ -38,3 +38,6 @@ logs
 tools
 Optimize.md
 requirements-dev.txt
+
+
+local-docs/

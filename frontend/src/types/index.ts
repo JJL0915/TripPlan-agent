@@ -77,6 +77,8 @@ export interface TripPlan {
 }
 
 export interface TripFormData {
+  session_id?: string
+  base_plan_version?: number
   city: string
   start_date: string | null
   end_date: string | null
@@ -91,6 +93,8 @@ export interface TripPlanResponse {
   success: boolean
   message: string
   data?: TripPlan
+  session_id?: string
+  plan_version: number
 }
 
 export interface AssistantMessage {
@@ -99,15 +103,17 @@ export interface AssistantMessage {
 }
 
 export interface AssistantChatRequest {
+  session_id?: string
   message: string
   page: string
-  history: AssistantMessage[]
+  history?: AssistantMessage[]
   draft_trip_request?: Partial<TripFormData>
   current_trip_plan?: TripPlan | null
 }
 
 export interface AssistantChatResponse {
   success: boolean
+  session_id?: string
   message: string
   reply: string
   intent: string
@@ -116,5 +122,21 @@ export interface AssistantChatResponse {
   should_generate_plan: boolean
   should_modify_plan: boolean
   trip_plan?: TripPlan
+  plan_version: number
+}
+
+export interface AssistantSessionResponse {
+  success: boolean
+  message: string
+  session_id: string
+  history: AssistantMessage[]
+  draft_trip_request: Partial<TripFormData>
+  trip_plan?: TripPlan | null
+  plan_version: number
+}
+
+export interface TripPlanUpdateRequest {
+  trip_plan: TripPlan
+  base_plan_version: number
 }
 

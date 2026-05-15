@@ -89,7 +89,13 @@ import {
   ReloadOutlined,
   SendOutlined
 } from '@ant-design/icons-vue'
-import { streamTravelAssistant } from '@/services/api'
+import {
+  clearAssistantSessionId,
+  getAssistantSession,
+  getAssistantSessionId,
+  saveAssistantSessionId,
+  streamTravelAssistant
+} from '@/services/api'
 import type { AssistantMessage, TripFormData, TripPlan } from '@/types'
 
 const route = useRoute()
@@ -99,6 +105,7 @@ const open = ref(false)
 const loading = ref(false)
 const input = ref('')
 const messagesRef = ref<HTMLElement | null>(null)
+const draftTripRequest = ref<Partial<TripFormData>>({})
 const messages = ref<AssistantMessage[]>([
   {
     role: 'assistant',
@@ -110,7 +117,7 @@ const page = computed(() => (route.path === '/result' ? 'result' : 'planning'))
 const pageTitle = computed(() => (page.value === 'result' ? '可根据当前行程继续问答或修改' : '可边聊边收集需求并生成计划'))
 
 const draftSummary = computed(() => {
-  const draft = getDraftTripRequest()
+  const draft = draftTripRequest.value
   if (!draft.city && !draft.start_date && !draft.end_date) return ''
   return `草稿：${draft.city || '未定目的地'} ${draft.start_date || '?'} 至 ${draft.end_date || '?'}`
 })
@@ -152,6 +159,8 @@ const sendQuick = (text: string) => {
 }
 
 const resetChat = () => {
+  clearAssistantSessionId()
+  draftTripRequest.value = {}
   messages.value = [
     {
       role: 'assistant',
@@ -168,7 +177,7 @@ const getPendingNotice = (content: string): string => {
     return '好的，我开始根据你的要求修改当前行程，完成后会把新的安排更新到页面里。'
   }
 
-  const draft = getDraftTripRequest()
+  const draft = draftTripRequest.value
   const hasRequiredDraft = Boolean(draft.city && draft.start_date && draft.end_date)
   if (page.value === 'planning' && (generatePattern.test(content) || hasRequiredDraft)) {
     return '好的，我开始根据目前收集到的信息生成旅行计划，这一步需要查询景点、天气和酒店数据，请稍等。'
@@ -181,7 +190,6 @@ const sendMessage = async () => {
   const content = input.value.trim()
   if (!content || loading.value) return
 
-  const history = messages.value.slice(-10)
   messages.value.push({ role: 'user', content })
 
   const pendingNotice = getPendingNotice(content)
@@ -201,11 +209,9 @@ const sendMessage = async () => {
     let replyIndex = assistantIndex
     await streamTravelAssistant(
       {
+        session_id: getAssistantSessionId() || undefined,
         message: content,
-        page: page.value,
-        history,
-        draft_trip_request: getDraftTripRequest(),
-        current_trip_plan: getCurrentTripPlan()
+        page: page.value
       },
       async (event) => {
         if (event.event === 'status') {
@@ -232,12 +238,13 @@ const sendMessage = async () => {
 
         if (event.event === 'final') {
           const response = event.data
+          saveAssistantSessionId(response.session_id)
           if (response.draft_trip_request) {
             saveDraftTripRequest(response.draft_trip_request)
           }
 
           if (response.trip_plan) {
-            saveTripPlan(response.trip_plan)
+            saveTripPlan(response.trip_plan, response.plan_version)
             const completionNotice = response.should_modify_plan
               ? '行程已修改完毕，页面里的新安排已经更新好了。'
               : response.should_generate_plan
@@ -277,38 +284,37 @@ const sendMessage = async () => {
   }
 }
 
-const getDraftTripRequest = (): Partial<TripFormData> => {
-  const raw = sessionStorage.getItem('assistantDraftTripRequest')
-  if (!raw) return {}
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return {}
-  }
-}
-
 const saveDraftTripRequest = (draft: Partial<TripFormData>) => {
-  sessionStorage.setItem('assistantDraftTripRequest', JSON.stringify(draft))
+  draftTripRequest.value = draft
   window.dispatchEvent(new CustomEvent('assistant:draft-updated', { detail: draft }))
 }
 
-const getCurrentTripPlan = (): TripPlan | null => {
-  const raw = sessionStorage.getItem('tripPlan')
-  if (!raw) return null
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return null
+const saveTripPlan = (plan: TripPlan, planVersion: number) => {
+  window.dispatchEvent(
+    new CustomEvent('assistant:trip-updated', {
+      detail: {
+        plan,
+        plan_version: planVersion
+      }
+    })
+  )
+}
+
+onMounted(async () => {
+  const sessionId = getAssistantSessionId()
+  if (sessionId) {
+    try {
+      const session = await getAssistantSession(sessionId)
+      draftTripRequest.value = session.draft_trip_request || {}
+      if (session.history.length) {
+        messages.value = session.history
+      }
+    } catch {
+      clearAssistantSessionId()
+      draftTripRequest.value = {}
+    }
   }
-}
-
-const saveTripPlan = (plan: TripPlan) => {
-  sessionStorage.setItem('tripPlan', JSON.stringify(plan))
-  window.dispatchEvent(new CustomEvent('assistant:trip-updated', { detail: plan }))
-}
-
-onMounted(() => {
-  scrollToBottom()
+  await scrollToBottom()
 })
 </script>
 

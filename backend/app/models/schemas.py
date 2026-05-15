@@ -1,6 +1,5 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, field_validator
-from datetime import date
 
 # ============ 请求模型 ============
 
@@ -8,6 +7,10 @@ from datetime import date
 class TripRequest(BaseModel):
     """旅行规划请求"""
 
+    session_id: Optional[str] = Field(default=None, description="后端会话ID")
+    base_plan_version: Optional[int] = Field(
+        default=None, description="基于哪个行程版本生成，用于乐观锁"
+    )
     city: str = Field(..., description="目的地城市", example="北京")
     start_date: str = Field(
         ..., description="开始日期 YYYY-MM-DD", example="2025-06-01"
@@ -17,7 +20,7 @@ class TripRequest(BaseModel):
     transportation: str = Field(..., description="交通方式", example="公共交通")
     accommodation: str = Field(..., description="住宿偏好", example="经济型酒店")
     preferences: List[str] = Field(
-        default=[], description="旅行偏好标签", example=["历史文化", "美食"]
+        default_factory=list, description="旅行偏好标签", example=["历史文化", "美食"]
     )
     free_text_input: Optional[str] = Field(
         default="", description="额外要求", example="希望多安排一些博物馆"
@@ -178,43 +181,67 @@ class TripPlanResponse(BaseModel):
     success: bool = Field(..., description="是否成功")
     message: str = Field(default="", description="消息")
     data: Optional[TripPlan] = Field(default=None, description="旅行计划数据")
+    session_id: Optional[str] = Field(default=None, description="后端会话ID")
+    plan_version: int = Field(default=0, description="当前行程版本")
 
 
 class AssistantMessage(BaseModel):
-    """Chat message used by the travel assistant."""
+    """行程问答助手使用的聊天消息。"""
 
     role: str = Field(..., description="user or assistant")
-    content: str = Field(..., description="Message content")
+    content: str = Field(..., description="消息内容")
 
 
 class AssistantChatRequest(BaseModel):
-    """Travel assistant chat request."""
+    """行程问答助手请求。"""
 
-    message: str = Field(..., description="Latest user message")
-    page: str = Field(default="planning", description="Current frontend page")
-    history: List[AssistantMessage] = Field(default_factory=list, description="Recent chat history")
+    session_id: Optional[str] = Field(default=None, description="后端会话ID")
+    message: str = Field(..., description="用户最新消息")
+    page: str = Field(default="planning", description="当前前端页面")
+    history: List[AssistantMessage] = Field(default_factory=list, description="最近对话历史")
     draft_trip_request: Optional[Dict[str, Any]] = Field(
-        default=None, description="Partially collected TripRequest fields"
+        default=None, description="已部分收集的行程需求字段"
     )
     current_trip_plan: Optional[TripPlan] = Field(
-        default=None, description="Current TripPlan on result page"
+        default=None, description="结果页当前行程计划"
     )
 
 
 class AssistantChatResponse(BaseModel):
-    """Travel assistant chat response."""
+    """行程问答助手响应。"""
 
-    success: bool = Field(..., description="Whether the assistant handled the request")
-    message: str = Field(default="", description="Response status message")
-    reply: str = Field(default="", description="Assistant reply shown in chat")
-    intent: str = Field(default="chat", description="Detected user intent")
+    success: bool = Field(..., description="助手是否成功处理请求")
+    session_id: Optional[str] = Field(default=None, description="后端会话ID")
+    message: str = Field(default="", description="响应状态消息")
+    reply: str = Field(default="", description="展示给用户的助手回复")
+    intent: str = Field(default="chat", description="识别出的用户意图")
     draft_trip_request: Optional[Dict[str, Any]] = Field(
-        default=None, description="Updated draft TripRequest"
+        default=None, description="更新后的行程需求草稿"
     )
-    missing_fields: List[str] = Field(default_factory=list, description="Missing required fields")
-    should_generate_plan: bool = Field(default=False, description="Whether a plan was generated")
-    should_modify_plan: bool = Field(default=False, description="Whether a plan was modified")
-    trip_plan: Optional[TripPlan] = Field(default=None, description="Generated or modified TripPlan")
+    missing_fields: List[str] = Field(default_factory=list, description="缺失的必填字段")
+    should_generate_plan: bool = Field(default=False, description="是否已生成行程")
+    should_modify_plan: bool = Field(default=False, description="是否已修改行程")
+    trip_plan: Optional[TripPlan] = Field(default=None, description="生成或修改后的行程计划")
+    plan_version: int = Field(default=0, description="当前行程版本")
+
+
+class AssistantSessionResponse(BaseModel):
+    """后端维护的问答助手会话快照。"""
+
+    success: bool = Field(default=True, description="是否成功返回会话")
+    message: str = Field(default="", description="响应状态消息")
+    session_id: str = Field(..., description="后端会话ID")
+    history: List[AssistantMessage] = Field(default_factory=list, description="最近对话历史")
+    draft_trip_request: Dict[str, Any] = Field(default_factory=dict, description="当前行程草稿")
+    trip_plan: Optional[TripPlan] = Field(default=None, description="当前行程计划")
+    plan_version: int = Field(default=0, description="当前行程版本")
+
+
+class TripPlanUpdateRequest(BaseModel):
+    """使用乐观锁覆盖当前 TripPlan 的请求。"""
+
+    trip_plan: TripPlan = Field(..., description="更新后的行程计划")
+    base_plan_version: int = Field(..., description="编辑前读取到的行程版本")
 
 
 class POIInfo(BaseModel):
@@ -233,7 +260,7 @@ class POISearchResponse(BaseModel):
 
     success: bool = Field(..., description="是否成功")
     message: str = Field(default="", description="消息")
-    data: List[POIInfo] = Field(default=[], description="POI列表")
+    data: List[POIInfo] = Field(default_factory=list, description="POI列表")
 
 
 class RouteInfo(BaseModel):
@@ -258,7 +285,7 @@ class WeatherResponse(BaseModel):
 
     success: bool = Field(..., description="是否成功")
     message: str = Field(default="", description="消息")
-    data: List[WeatherInfo] = Field(default=[], description="天气信息")
+    data: List[WeatherInfo] = Field(default_factory=list, description="天气信息")
 
 
 # ============ 错误响应 ============

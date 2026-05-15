@@ -3,9 +3,7 @@
 import logging
 
 from fastapi import APIRouter, HTTPException, Query
-from typing import Optional
 from ...models.schemas import (
-    POISearchRequest,
     POISearchResponse,
     RouteRequest,
     RouteResponse,
@@ -124,8 +122,6 @@ async def plan_route(request: RouteRequest):
 async def health_check():
     """健康检查"""
     try:
-        # 检查服务是否可用
-        service = get_amap_service()
         tools = await get_amap_mcp_tools()
 
         return {

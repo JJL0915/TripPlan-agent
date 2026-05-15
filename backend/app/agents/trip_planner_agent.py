@@ -47,7 +47,7 @@ class TripPlannerState(TypedDict, total=False):
 
 
 class MultiAgentTripPlanner:
-    """LangGraph multi-agent trip planning system."""
+    """基于 LangGraph 的多节点旅行规划智能体。"""
 
     def __init__(self):
         logger.info("旅行规划图初始化开始", extra={"component": "langgraph"})
@@ -85,7 +85,7 @@ class MultiAgentTripPlanner:
         logger.info("旅行规划图初始化完成", extra={"component": "langgraph"})
 
     async def aplan_trip(self, request: TripRequest) -> TripPlan:
-        """Generate a trip plan asynchronously."""
+        """异步生成旅行计划。"""
         await self._ensure_graph()
 
         total_start = time.time()
@@ -124,14 +124,15 @@ class MultiAgentTripPlanner:
             return self._create_fallback_plan(request)
 
     def plan_trip(self, request: TripRequest) -> TripPlan:
-        """Sync compatibility wrapper for non-async callers."""
+        """兼容同步调用方的包装方法。"""
         return asyncio.run(self.aplan_trip(request))
 
     async def _attraction_tool_node(self, state: TripPlannerState) -> dict[str, str]:
         request = state["request"]
         keywords = self._build_attraction_keywords(request)
-        start = time.time()
-        result = await call_amap_tool(
+        content = await self._run_tool_node(
+            "attraction_tool",
+            request,
             "maps_text_search",
             {
                 "keywords": keywords,
@@ -139,28 +140,23 @@ class MultiAgentTripPlanner:
                 "citylimit": "true",
             },
         )
-        content = self._stringify_result(result)
-        logger.info(
-            "LangGraph 节点执行完成",
-            extra={"node": "attraction_tool", "city": request.city, "duration_s": round(time.time() - start, 2)},
-        )
         return {"attraction_raw": content}
 
     async def _weather_tool_node(self, state: TripPlannerState) -> dict[str, str]:
         request = state["request"]
-        start = time.time()
-        result = await call_amap_tool("maps_weather", {"city": request.city})
-        content = self._stringify_result(result)
-        logger.info(
-            "LangGraph 节点执行完成",
-            extra={"node": "weather_tool", "city": request.city, "duration_s": round(time.time() - start, 2)},
+        content = await self._run_tool_node(
+            "weather_tool",
+            request,
+            "maps_weather",
+            {"city": request.city},
         )
         return {"weather_raw": content}
 
     async def _hotel_tool_node(self, state: TripPlannerState) -> dict[str, str]:
         request = state["request"]
-        start = time.time()
-        result = await call_amap_tool(
+        content = await self._run_tool_node(
+            "hotel_tool",
+            request,
             "maps_text_search",
             {
                 "keywords": f"{request.accommodation} 酒店",
@@ -168,63 +164,80 @@ class MultiAgentTripPlanner:
                 "citylimit": "true",
             },
         )
-        content = self._stringify_result(result)
-        logger.info(
-            "LangGraph 节点执行完成",
-            extra={"node": "hotel_tool", "city": request.city, "duration_s": round(time.time() - start, 2)},
-        )
         return {"hotel_raw": content}
 
     async def _attraction_agent_node(self, state: TripPlannerState) -> dict[str, str]:
         request = state["request"]
-        prompt = self._build_sub_agent_query(request, state.get("attraction_raw", ""))
-        start = time.time()
-        response = await self.llm.ainvoke(
-            [
-                SystemMessage(content=ATTRACTION_AGENT_PROMPT),
-                HumanMessage(content=prompt),
-            ]
-        )
-        content = getattr(response, "content", str(response))
-        logger.info(
-            "LangGraph 节点执行完成",
-            extra={"node": "attraction_agent", "city": request.city, "duration_s": round(time.time() - start, 2)},
+        content = await self._run_summary_agent(
+            "attraction_agent",
+            request,
+            ATTRACTION_AGENT_PROMPT,
+            state.get("attraction_raw", ""),
         )
         return {"attraction_summary": content}
 
     async def _weather_agent_node(self, state: TripPlannerState) -> dict[str, str]:
         request = state["request"]
-        prompt = self._build_sub_agent_query(request, state.get("weather_raw", ""))
-        start = time.time()
-        response = await self.llm.ainvoke(
-            [
-                SystemMessage(content=WEATHER_AGENT_PROMPT),
-                HumanMessage(content=prompt),
-            ]
-        )
-        content = getattr(response, "content", str(response))
-        logger.info(
-            "LangGraph 节点执行完成",
-            extra={"node": "weather_agent", "city": request.city, "duration_s": round(time.time() - start, 2)},
+        content = await self._run_summary_agent(
+            "weather_agent",
+            request,
+            WEATHER_AGENT_PROMPT,
+            state.get("weather_raw", ""),
         )
         return {"weather_summary": content}
 
     async def _hotel_agent_node(self, state: TripPlannerState) -> dict[str, str]:
         request = state["request"]
-        prompt = self._build_sub_agent_query(request, state.get("hotel_raw", ""))
+        content = await self._run_summary_agent(
+            "hotel_agent",
+            request,
+            HOTEL_AGENT_PROMPT,
+            state.get("hotel_raw", ""),
+        )
+        return {"hotel_summary": content}
+
+    async def _run_tool_node(
+        self,
+        node_name: str,
+        request: TripRequest,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> str:
+        """统一执行 MCP 工具节点并记录耗时。"""
+        start = time.time()
+        result = await call_amap_tool(tool_name, arguments)
+        self._log_node_done(node_name, request, start)
+        return self._stringify_result(result)
+
+    async def _run_summary_agent(
+        self,
+        node_name: str,
+        request: TripRequest,
+        system_prompt: str,
+        raw_result: str,
+    ) -> str:
+        """统一执行领域摘要子 Agent。"""
         start = time.time()
         response = await self.llm.ainvoke(
             [
-                SystemMessage(content=HOTEL_AGENT_PROMPT),
-                HumanMessage(content=prompt),
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=self._build_sub_agent_query(request, raw_result)),
             ]
         )
-        content = getattr(response, "content", str(response))
+        self._log_node_done(node_name, request, start)
+        return getattr(response, "content", str(response))
+
+    @staticmethod
+    def _log_node_done(node_name: str, request: TripRequest, start: float) -> None:
+        """记录 LangGraph 节点执行完成日志。"""
         logger.info(
             "LangGraph 节点执行完成",
-            extra={"node": "hotel_agent", "city": request.city, "duration_s": round(time.time() - start, 2)},
+            extra={
+                "node": node_name,
+                "city": request.city,
+                "duration_s": round(time.time() - start, 2),
+            },
         )
-        return {"hotel_summary": content}
 
     async def _planner_node(self, state: TripPlannerState) -> dict[str, Any]:
         request = state["request"]
@@ -244,10 +257,7 @@ class MultiAgentTripPlanner:
         )
         content = getattr(response, "content", str(response))
         trip_plan = self._parse_response(content, request)
-        logger.info(
-            "LangGraph 节点执行完成",
-            extra={"node": "planner_agent", "city": request.city, "duration_s": round(time.time() - start, 2)},
-        )
+        self._log_node_done("planner_agent", request, start)
         return {"planner_result": content, "trip_plan": trip_plan}
 
     def _build_attraction_keywords(self, request: TripRequest) -> str:
@@ -338,7 +348,7 @@ class MultiAgentTripPlanner:
 
     @staticmethod
     def _normalize_trip_data(data: dict[str, Any]) -> dict[str, Any]:
-        """Coerce common LLM scalar type drift before Pydantic validation."""
+        """在 Pydantic 校验前修正大模型常见的标量类型漂移。"""
         for day in data.get("days", []) or []:
             hotel = day.get("hotel")
             if isinstance(hotel, dict):
@@ -439,7 +449,7 @@ _multi_agent_planner: MultiAgentTripPlanner | None = None
 
 
 def get_trip_planner_agent() -> MultiAgentTripPlanner:
-    """Return shared LangGraph trip planner instance."""
+    """返回共享的 LangGraph 旅行规划智能体实例。"""
     global _multi_agent_planner
 
     if _multi_agent_planner is None:

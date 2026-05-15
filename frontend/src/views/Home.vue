@@ -207,7 +207,12 @@
 import { onMounted, onUnmounted, ref, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { generateTripPlan } from '@/services/api'
+import {
+  generateTripPlan,
+  getAssistantSessionId,
+  getSessionTripPlan,
+  saveAssistantSessionId
+} from '@/services/api'
 import type { TripFormData } from '@/types'
 import dayjs from 'dayjs'
 import type { Dayjs } from 'dayjs'
@@ -295,7 +300,20 @@ const handleSubmit = async () => {
   }, 500)
 
   try {
+    const sessionId = getAssistantSessionId()
+    let basePlanVersion: number | undefined
+    if (sessionId) {
+      try {
+        const currentPlan = await getSessionTripPlan(sessionId)
+        basePlanVersion = currentPlan.plan_version
+      } catch {
+        basePlanVersion = undefined
+      }
+    }
+
     const requestData: TripFormData = {
+      session_id: sessionId || undefined,
+      base_plan_version: basePlanVersion,
       city: formData.city,
       start_date: formData.start_date.format('YYYY-MM-DD'),
       end_date: formData.end_date.format('YYYY-MM-DD'),
@@ -315,17 +333,18 @@ const handleSubmit = async () => {
     console.log('[Debug] 响应状态:', response.success, '有数据:', !!response.data, '数据字段:', Object.keys(response.data || {}))
 
     if (response.success && response.data !== null && response.data !== undefined) {
-      // 保存到sessionStorage(带错误保护)
+      // 行程由后端会话保存，前端只保留 session_id。
       try {
-        const planStr = JSON.stringify(response.data)
-        console.log('[Debug] JSON序列化大小:', (planStr.length / 1024).toFixed(1), 'KB')
-        sessionStorage.setItem('tripPlan', planStr)
-        console.log('[Debug] sessionStorage 保存成功')
+        saveAssistantSessionId(response.session_id)
+        window.dispatchEvent(
+          new CustomEvent('assistant:trip-updated', {
+            detail: {
+              plan: response.data,
+              plan_version: response.plan_version
+            }
+          })
+        )
         message.success('旅行计划生成成功!')
-
-        // 检查sessionStorage
-        const saved = sessionStorage.getItem('tripPlan')
-        console.log('[Debug] 读取验证:', saved ? saved.slice(0, 50) + '...' : 'null')
 
         // 短暂延迟后跳转
         setTimeout(async () => {
